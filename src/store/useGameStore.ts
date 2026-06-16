@@ -7,8 +7,15 @@ import {
   FAULT_CHANCE,
   BUILDING_STATS,
   DAY_THRESHOLD,
+  DreamState,
 } from '../utils/constants';
 import { calculatePowerNetwork, countPoweredBuildings } from '../utils/powerCalculator';
+import {
+  createInitialDreamState,
+  generateDreams,
+  evaluateDreamWishes,
+  finalizeDreamEvaluation,
+} from '../utils/dreamManager';
 
 const STORAGE_KEY = 'floating-island-grid-game-save';
 
@@ -17,6 +24,7 @@ interface PersistedState {
   dayTime: number;
   storedPower: number;
   satisfaction: number;
+  inspirationPoints: number;
 }
 
 interface GameState {
@@ -30,6 +38,8 @@ interface GameState {
   totalGeneration: number;
   totalConsumption: number;
   showSettlement: boolean;
+  dreamState: DreamState;
+  showDreamModal: boolean;
   setSelectedTool: (tool: ToolType) => void;
   placeOrRemove: (x: number, y: number) => void;
   rotateCell: (x: number, y: number) => void;
@@ -38,6 +48,8 @@ interface GameState {
   resetGame: () => void;
   openSettlement: () => void;
   closeSettlement: () => void;
+  openDreamModal: () => void;
+  closeDreamModal: () => void;
 }
 
 function createEmptyGrid(): GridCell[][] {
@@ -66,6 +78,7 @@ function saveToLocalStorage(state: PersistedState): void {
       dayTime: state.dayTime,
       storedPower: state.storedPower,
       satisfaction: state.satisfaction,
+      inspirationPoints: state.inspirationPoints,
     });
     localStorage.setItem(STORAGE_KEY, data);
   } catch {
@@ -84,6 +97,7 @@ function loadFromLocalStorage(): PersistedState | null {
         dayTime: data.dayTime ?? 20,
         storedPower: data.storedPower ?? 10,
         satisfaction: data.satisfaction ?? 50,
+        inspirationPoints: data.inspirationPoints ?? 0,
       };
     }
   } catch {
@@ -112,9 +126,13 @@ function initGame(): Omit<GameState, keyof GameStateActions> {
   const dayTime = saved ? saved.dayTime : 20;
   const storedPower = saved ? saved.storedPower : 10;
   const satisfaction = saved ? saved.satisfaction : 50;
+  const inspirationPoints = saved ? saved.inspirationPoints : 0;
 
   const { newGrid, poweredCells, totalGeneration, totalConsumption, batteryCapacity } =
     recalcGrid(grid, dayTime, storedPower);
+
+  const initialDreamState = createInitialDreamState();
+  initialDreamState.inspirationPoints = inspirationPoints;
 
   return {
     grid: newGrid,
@@ -127,6 +145,8 @@ function initGame(): Omit<GameState, keyof GameStateActions> {
     totalGeneration,
     totalConsumption,
     showSettlement: false,
+    dreamState: initialDreamState,
+    showDreamModal: false,
   };
 }
 
@@ -140,6 +160,8 @@ type GameStateActions = Pick<
   | 'resetGame'
   | 'openSettlement'
   | 'closeSettlement'
+  | 'openDreamModal'
+  | 'closeDreamModal'
 >;
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -188,6 +210,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       dayTime: state.dayTime,
       storedPower: state.storedPower,
       satisfaction: state.satisfaction,
+      inspirationPoints: state.dreamState.inspirationPoints,
     });
 
     set(nextState);
@@ -216,6 +239,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       dayTime: state.dayTime,
       storedPower: state.storedPower,
       satisfaction: state.satisfaction,
+      inspirationPoints: state.dreamState.inspirationPoints,
     });
 
     set(nextState);
@@ -244,6 +268,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       dayTime: state.dayTime,
       storedPower: state.storedPower,
       satisfaction: state.satisfaction,
+      inspirationPoints: state.dreamState.inspirationPoints,
     });
 
     set(nextState);
@@ -262,7 +287,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     }
 
-    const newDayTime = (state.dayTime + 0.5) % DAY_LENGTH;
+    const oldDayTime = state.dayTime;
+    const newDayTime = (oldDayTime + 0.5) % DAY_LENGTH;
+
+    const wasDay = oldDayTime < DAY_THRESHOLD;
+    const isNowNight = newDayTime >= DAY_THRESHOLD;
+    const dayJustStarted = oldDayTime >= DAY_THRESHOLD && newDayTime < DAY_THRESHOLD;
+    const nightJustStarted = wasDay && isNowNight;
 
     const { poweredCells, totalGeneration, totalConsumption, batteryCapacity } =
       calculatePowerNetwork(newGrid, newDayTime, state.storedPower);
@@ -273,7 +304,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     }
 
-    const netPower = totalGeneration - totalConsumption;
+    const penaltyMultiplier = 1 - state.dreamState.nextDayPenalty;
+    const adjustedGeneration = dayJustStarted ? totalGeneration * penaltyMultiplier : totalGeneration;
+    const netPower = adjustedGeneration - totalConsumption;
+
     let newStoredPower = state.storedPower;
     const isDay = newDayTime < DAY_THRESHOLD;
 
@@ -296,12 +330,69 @@ export const useGameStore = create<GameState>((set, get) => ({
     let coverage = totalBuildings > 0 ? totalPowered / totalBuildings : 1;
 
     let newSatisfaction = state.satisfaction;
+    const satisfactionBonus = dayJustStarted ? 0 : 1;
     if (coverage >= 0.8) {
-      newSatisfaction = Math.min(100, state.satisfaction + 0.2);
+      newSatisfaction = Math.min(100, state.satisfaction + 0.2 * satisfactionBonus);
     } else if (coverage >= 0.5) {
-      newSatisfaction = Math.min(100, state.satisfaction + 0.05);
+      newSatisfaction = Math.min(100, state.satisfaction + 0.05 * satisfactionBonus);
     } else {
       newSatisfaction = Math.max(0, state.satisfaction - 0.3);
+    }
+
+    let newDreamState = { ...state.dreamState };
+
+    if (nightJustStarted) {
+      const dreams = generateDreams(newGrid, newSatisfaction);
+      if (dreams.length > 0) {
+        newDreamState = {
+          ...newDreamState,
+          active: true,
+          wishes: dreams,
+          lastEvaluatedDayTime: newDayTime,
+          totalWishes: dreams.length,
+          fulfilledWishes: 0,
+        };
+      }
+    }
+
+    if (newDreamState.active && !isDay) {
+      const evaluatedWishes = evaluateDreamWishes(
+        newDreamState.wishes,
+        newGrid,
+        newStoredPower,
+        batteryCapacity,
+        newDayTime
+      );
+      newDreamState = {
+        ...newDreamState,
+        wishes: evaluatedWishes,
+        lastEvaluatedDayTime: newDayTime,
+      };
+    }
+
+    if (dayJustStarted && newDreamState.active) {
+      const {
+        updatedWishes,
+        totalInspiration,
+        penalty,
+        fulfilledCount,
+        totalCount,
+      } = finalizeDreamEvaluation(newDreamState.wishes);
+
+      newDreamState = {
+        ...newDreamState,
+        active: false,
+        wishes: updatedWishes,
+        inspirationPoints: newDreamState.inspirationPoints + totalInspiration,
+        nextDayPenalty: penalty,
+        fulfilledWishes: fulfilledCount,
+        totalWishes: totalCount,
+      };
+    } else if (dayJustStarted && !newDreamState.active) {
+      newDreamState = {
+        ...newDreamState,
+        nextDayPenalty: 0,
+      };
     }
 
     saveToLocalStorage({
@@ -309,6 +400,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       dayTime: newDayTime,
       storedPower: newStoredPower,
       satisfaction: newSatisfaction,
+      inspirationPoints: newDreamState.inspirationPoints,
     });
 
     set({
@@ -318,8 +410,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       maxStorage: batteryCapacity,
       satisfaction: newSatisfaction,
       poweredCells,
-      totalGeneration,
+      totalGeneration: adjustedGeneration,
       totalConsumption,
+      dreamState: newDreamState,
     });
   },
 
@@ -327,6 +420,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     localStorage.removeItem(STORAGE_KEY);
     const fresh = createEmptyGrid();
     const result = recalcGrid(fresh, 20, 10);
+    const freshDreamState = createInitialDreamState();
     set({
       grid: result.newGrid,
       dayTime: 20,
@@ -338,9 +432,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       totalGeneration: result.totalGeneration,
       totalConsumption: result.totalConsumption,
       showSettlement: false,
+      dreamState: freshDreamState,
+      showDreamModal: false,
     });
   },
 
   openSettlement: () => set({ showSettlement: true }),
   closeSettlement: () => set({ showSettlement: false }),
+  openDreamModal: () => set({ showDreamModal: true }),
+  closeDreamModal: () => set({ showDreamModal: false }),
 }));

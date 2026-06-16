@@ -11,6 +11,67 @@ export interface GridCell {
   faulty: boolean;
 }
 
+export type DreamWishType = 'blue_current' | 'silent_night' | 'half_battery';
+
+export type DreamWishStatus = 'pending' | 'fulfilled' | 'failed';
+
+export interface DreamWish {
+  id: string;
+  type: DreamWishType;
+  targetCell: { x: number; y: number };
+  targetType: CellType;
+  status: DreamWishStatus;
+  fulfilled: boolean;
+  inspirationReward: number;
+  description: string;
+  emoji: string;
+}
+
+export interface DreamState {
+  active: boolean;
+  wishes: DreamWish[];
+  inspirationPoints: number;
+  nextDayPenalty: number;
+  lastEvaluatedDayTime: number;
+  totalWishes: number;
+  fulfilledWishes: number;
+}
+
+export const DREAM_WISH_INFO: Record<DreamWishType, {
+  name: string;
+  description: string;
+  emoji: string;
+  inspirationBase: number;
+  targetBuildingType: CellType;
+}> = {
+  blue_current: {
+    name: '蓝色安眠电流',
+    description: '希望住房接入稳定的蓝色安眠电流，整夜保持通电',
+    emoji: '💙',
+    inspirationBase: 15,
+    targetBuildingType: 'house',
+  },
+  silent_night: {
+    name: '夜间断电静音',
+    description: '工坊希望夜间断电，保持宁静以便工人休养',
+    emoji: '🤫',
+    inspirationBase: 20,
+    targetBuildingType: 'factory',
+  },
+  half_battery: {
+    name: '蓄电池半满',
+    description: '蓄电池希望保持半满状态（40%-60%），平衡充放电循环',
+    emoji: '⚖️',
+    inspirationBase: 18,
+    targetBuildingType: 'battery',
+  },
+};
+
+export const DREAM_SATISFACTION_THRESHOLD = 70;
+export const HALF_BATTERY_LOW = 0.4;
+export const HALF_BATTERY_HIGH = 0.6;
+export const PENALTY_PER_FAILED_DREAM = 0.05;
+
 export const GRID_SIZE = 8;
 
 export const BUILDING_STATS = {

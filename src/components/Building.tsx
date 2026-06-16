@@ -1,5 +1,6 @@
 import React from 'react';
-import { GridCell, BUILDING_STATS, WIRE_CONNECTIONS } from '../utils/constants';
+import { GridCell, BUILDING_STATS, WIRE_CONNECTIONS, DreamWishType } from '../utils/constants';
+import { useGameStore } from '../store/useGameStore';
 
 interface BuildingProps {
   cell: GridCell;
@@ -12,18 +13,77 @@ export const Building: React.FC<BuildingProps> = ({ cell }) => {
     return <WireVisual rotation={cell.rotation} powered={cell.powered} faulty={cell.faulty} />;
   }
 
+  const dreamState = useGameStore((state) => state.dreamState);
+  const dayTime = useGameStore((state) => state.dayTime);
+  const isNight = dayTime >= 50;
+
+  const dreamInfo = dreamState.active
+    ? dreamState.wishes.find(
+        (w) => w.targetCell.x === cell.x && w.targetCell.y === cell.y
+      )
+    : null;
+
   const stats = BUILDING_STATS[cell.type];
   const isRotating = cell.type === 'windmill' && cell.powered && !cell.faulty;
 
+  const getDreamGlow = () => {
+    if (!dreamInfo || !isNight) return null;
+    const glowMap: Record<DreamWishType, { color: string; label: string }> = {
+      blue_current: {
+        color: dreamInfo.fulfilled
+          ? 'rgba(59, 130, 246, 0.8)'
+          : 'rgba(59, 130, 246, 0.4)',
+        label: '💙',
+      },
+      silent_night: {
+        color: dreamInfo.fulfilled
+          ? 'rgba(139, 92, 246, 0.8)'
+          : 'rgba(139, 92, 246, 0.4)',
+        label: '🤫',
+      },
+      half_battery: {
+        color: dreamInfo.fulfilled
+          ? 'rgba(16, 185, 129, 0.8)'
+          : 'rgba(16, 185, 129, 0.4)',
+        label: '⚖️',
+      },
+    };
+    return glowMap[dreamInfo.type];
+  };
+
+  const dreamGlow = getDreamGlow();
+
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {dreamGlow && isNight && (
+        <>
+          <div
+            className="absolute inset-0 rounded-xl animate-pulse"
+            style={{
+              boxShadow: `0 0 20px ${dreamGlow.color}, inset 0 0 15px ${dreamGlow.color}`,
+              border: `2px solid ${dreamGlow.color}`,
+            }}
+          />
+          <div
+            className={`absolute -top-2 -left-1 text-sm ${
+              dreamInfo?.fulfilled ? 'animate-bounce' : 'animate-pulse'
+            }`}
+          >
+            {dreamGlow.label}
+          </div>
+        </>
+      )}
       <div
-        className={`text-3xl transition-all duration-200 ${
+        className={`text-3xl transition-all duration-200 relative z-10 ${
           cell.powered && !cell.faulty ? 'scale-100 drop-shadow-lg' : 'opacity-60 scale-95'
         } ${isRotating ? 'animate-[spin_3s_linear_infinite]' : ''}`}
         style={{
           filter: cell.faulty
             ? 'hue-rotate(-50deg) saturate(2)'
+            : dreamInfo?.type === 'blue_current' && cell.powered
+            ? 'drop-shadow(0 0 6px rgba(59, 130, 246, 0.8)) brightness(1.1)'
+            : dreamInfo?.type === 'silent_night' && !cell.powered
+            ? 'drop-shadow(0 0 6px rgba(139, 92, 246, 0.6))'
             : cell.powered
             ? 'none'
             : 'grayscale(50%)',
@@ -32,10 +92,13 @@ export const Building: React.FC<BuildingProps> = ({ cell }) => {
         {stats.emoji}
       </div>
       {cell.faulty && (
-        <div className="absolute -top-1 -right-1 text-sm animate-pulse">⚠️</div>
+        <div className="absolute -top-1 -right-1 text-sm animate-pulse z-20">⚠️</div>
+      )}
+      {dreamInfo?.fulfilled && isNight && (
+        <div className="absolute -bottom-1 -right-1 text-sm z-20 animate-bounce">✨</div>
       )}
       {cell.type === 'battery' && !cell.faulty && (
-        <div className="absolute bottom-0 left-1 right-1 h-1.5 bg-gray-300 rounded-full overflow-hidden">
+        <div className="absolute bottom-0 left-1 right-1 h-1.5 bg-gray-300 rounded-full overflow-hidden z-10">
           <div
             className="h-full bg-gradient-to-r from-yellow-400 to-amber-500 transition-all duration-500"
             style={{ width: `${Math.min(100, cell.powered ? 80 : 30)}%` }}
