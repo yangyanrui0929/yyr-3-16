@@ -17,6 +17,27 @@ import {
   finalizeDreamEvaluation,
 } from '../utils/dreamManager';
 
+function reevaluateDreamsIfActive(
+  dreamState: any,
+  grid: GridCell[][],
+  storedPower: number,
+  maxStorage: number,
+  dayTime: number
+) {
+  if (!dreamState.active) return dreamState;
+  const evaluatedWishes = evaluateDreamWishes(
+    dreamState.wishes,
+    grid,
+    storedPower,
+    maxStorage,
+    dayTime
+  );
+  return {
+    ...dreamState,
+    wishes: evaluatedWishes,
+  };
+}
+
 const STORAGE_KEY = 'floating-island-grid-game-save';
 
 interface PersistedState {
@@ -197,12 +218,21 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const result = recalcGrid(newGrid, state.dayTime, state.storedPower);
 
+    const newDreamState = reevaluateDreamsIfActive(
+      state.dreamState,
+      result.newGrid,
+      state.storedPower,
+      result.batteryCapacity,
+      state.dayTime
+    );
+
     const nextState = {
       grid: result.newGrid,
       poweredCells: result.poweredCells,
       totalGeneration: result.totalGeneration,
       totalConsumption: result.totalConsumption,
       maxStorage: result.batteryCapacity,
+      dreamState: newDreamState,
     };
 
     saveToLocalStorage({
@@ -210,7 +240,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       dayTime: state.dayTime,
       storedPower: state.storedPower,
       satisfaction: state.satisfaction,
-      inspirationPoints: state.dreamState.inspirationPoints,
+      inspirationPoints: newDreamState.inspirationPoints,
     });
 
     set(nextState);
@@ -226,12 +256,21 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const result = recalcGrid(newGrid, state.dayTime, state.storedPower);
 
+    const newDreamState = reevaluateDreamsIfActive(
+      state.dreamState,
+      result.newGrid,
+      state.storedPower,
+      result.batteryCapacity,
+      state.dayTime
+    );
+
     const nextState = {
       grid: result.newGrid,
       poweredCells: result.poweredCells,
       totalGeneration: result.totalGeneration,
       totalConsumption: result.totalConsumption,
       maxStorage: result.batteryCapacity,
+      dreamState: newDreamState,
     };
 
     saveToLocalStorage({
@@ -239,7 +278,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       dayTime: state.dayTime,
       storedPower: state.storedPower,
       satisfaction: state.satisfaction,
-      inspirationPoints: state.dreamState.inspirationPoints,
+      inspirationPoints: newDreamState.inspirationPoints,
     });
 
     set(nextState);
@@ -255,12 +294,21 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const result = recalcGrid(newGrid, state.dayTime, state.storedPower);
 
+    const newDreamState = reevaluateDreamsIfActive(
+      state.dreamState,
+      result.newGrid,
+      state.storedPower,
+      result.batteryCapacity,
+      state.dayTime
+    );
+
     const nextState = {
       grid: result.newGrid,
       poweredCells: result.poweredCells,
       totalGeneration: result.totalGeneration,
       totalConsumption: result.totalConsumption,
       maxStorage: result.batteryCapacity,
+      dreamState: newDreamState,
     };
 
     saveToLocalStorage({
@@ -268,7 +316,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       dayTime: state.dayTime,
       storedPower: state.storedPower,
       satisfaction: state.satisfaction,
-      inspirationPoints: state.dreamState.inspirationPoints,
+      inspirationPoints: newDreamState.inspirationPoints,
     });
 
     set(nextState);
@@ -294,6 +342,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const isNowNight = newDayTime >= DAY_THRESHOLD;
     const dayJustStarted = oldDayTime >= DAY_THRESHOLD && newDayTime < DAY_THRESHOLD;
     const nightJustStarted = wasDay && isNowNight;
+    const isDay = newDayTime < DAY_THRESHOLD;
 
     const { poweredCells, totalGeneration, totalConsumption, batteryCapacity } =
       calculatePowerNetwork(newGrid, newDayTime, state.storedPower);
@@ -305,11 +354,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
 
     const penaltyMultiplier = 1 - state.dreamState.nextDayPenalty;
-    const adjustedGeneration = dayJustStarted ? totalGeneration * penaltyMultiplier : totalGeneration;
+    const adjustedGeneration = isDay ? totalGeneration * penaltyMultiplier : totalGeneration;
     const netPower = adjustedGeneration - totalConsumption;
 
     let newStoredPower = state.storedPower;
-    const isDay = newDayTime < DAY_THRESHOLD;
 
     if (batteryCapacity > 0) {
       if (netPower > 0) {
@@ -377,6 +425,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         penalty,
         fulfilledCount,
         totalCount,
+        earnedSpecialRewards,
       } = finalizeDreamEvaluation(newDreamState.wishes);
 
       newDreamState = {
@@ -387,6 +436,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         nextDayPenalty: penalty,
         fulfilledWishes: fulfilledCount,
         totalWishes: totalCount,
+        lastNightInspiration: totalInspiration,
+        lastNightSpecialRewards: earnedSpecialRewards,
       };
     } else if (dayJustStarted && !newDreamState.active) {
       newDreamState = {

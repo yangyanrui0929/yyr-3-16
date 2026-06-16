@@ -1,6 +1,6 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { Sun, Moon, Zap, Battery, Smile, Meh, Frown } from 'lucide-react';
+import { Sun, Moon, Zap, Battery, Smile, Meh, Frown, Lightbulb, AlertTriangle } from 'lucide-react';
 
 export const StatusBar: React.FC = () => {
   const {
@@ -11,6 +11,7 @@ export const StatusBar: React.FC = () => {
     maxStorage,
     satisfaction,
     openSettlement,
+    dreamState,
   } = useGameStore();
 
   const isDay = dayTime < 50;
@@ -138,6 +139,40 @@ export const StatusBar: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <div className="h-10 w-px bg-gray-200" />
+
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 rounded-full bg-yellow-50 flex items-center justify-center">
+            <Lightbulb className="w-5 h-5 text-yellow-500" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">灵感点</p>
+            <p className="text-sm font-bold text-yellow-600">
+              {dreamState.inspirationPoints}
+              {dreamState.lastNightInspiration > 0 && (
+                <span className="text-xs text-green-500 font-normal ml-1">
+                  (+{dreamState.lastNightInspiration})
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        {dreamState.nextDayPenalty > 0 && isDay && (
+          <>
+            <div className="h-10 w-px bg-gray-200" />
+            <div className="flex items-center gap-2 bg-red-50 px-3 py-1.5 rounded-xl border border-red-100">
+              <AlertTriangle className="w-4 h-4 text-red-500 animate-pulse" />
+              <div>
+                <p className="text-[10px] text-red-500 font-semibold">梦境惩罚</p>
+                <p className="text-xs font-bold text-red-600">
+                  效率 -{Math.round(dreamState.nextDayPenalty * 100)}%
+                </p>
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="h-10 w-px bg-gray-200" />
 

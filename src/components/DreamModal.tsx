@@ -24,6 +24,7 @@ import {
   Sun,
   Award,
   AlertTriangle,
+  Ban,
 } from 'lucide-react';
 
 export const DreamModal: React.FC = () => {
@@ -46,6 +47,9 @@ export const DreamModal: React.FC = () => {
   const totalReward = getTotalRewardPreview(dreamState.wishes);
   const storagePercent = maxStorage > 0 ? (storedPower / maxStorage) * 100 : 0;
 
+  const hasLastNightRewards =
+    dreamState.lastNightSpecialRewards && dreamState.lastNightSpecialRewards.length > 0;
+
   const getWishesByType = () => {
     const grouped: Record<string, DreamWish[]> = {
       blue_current: [],
@@ -59,12 +63,13 @@ export const DreamModal: React.FC = () => {
   };
 
   const wishesByType = getWishesByType();
-  const fulfilledWishes = dreamState.wishes.filter((w) => w.fulfilled).length;
-  const failedWishes = dreamState.wishes.filter((w) => w.status === 'failed').length;
-  const pendingWishes = dreamState.wishes.length - fulfilledWishes - failedWishes;
+  const validWishes = dreamState.wishes.filter((w) => !w.invalidTarget);
+  const fulfilledWishes = validWishes.filter((w) => w.fulfilled).length;
+  const failedWishes = validWishes.filter((w) => w.status === 'failed').length;
+  const pendingWishes = validWishes.length - fulfilledWishes - failedWishes;
 
   const getGlobalConditionStatus = () => {
-    const halfBatteryWishes = wishesByType.half_battery;
+    const halfBatteryWishes = wishesByType.half_battery.filter((w) => !w.invalidTarget);
     if (halfBatteryWishes.length === 0) return null;
     const isInRange = storagePercent >= HALF_BATTERY_LOW * 100 && storagePercent <= HALF_BATTERY_HIGH * 100;
     return {
@@ -127,6 +132,11 @@ export const DreamModal: React.FC = () => {
               icon={<Lightbulb className="w-5 h-5" />}
               label="累计灵感"
               value={dreamState.inspirationPoints.toString()}
+              subValue={
+                dreamState.lastNightInspiration > 0 && !dreamState.active
+                  ? `+${dreamState.lastNightInspiration}`
+                  : undefined
+              }
               color="yellow"
               isNight={isNight}
             />
@@ -152,6 +162,46 @@ export const DreamModal: React.FC = () => {
               isNight={isNight}
             />
           </div>
+
+          {hasLastNightRewards && !dreamState.active && (
+            <div
+              className={`rounded-xl p-4 border ${
+                isNight
+                  ? 'bg-yellow-500/15 border-yellow-500/40'
+                  : 'bg-yellow-50 border-yellow-200'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Gift
+                  className={`w-5 h-5 ${isNight ? 'text-yellow-400' : 'text-yellow-600'}`}
+                />
+                <h3
+                  className={`font-bold ${isNight ? 'text-white' : 'text-gray-800'}`}
+                >
+                  🎉 昨夜特殊奖励
+                  {dreamState.lastNightInspiration > 0 && (
+                    <span className="ml-2 text-green-500 text-sm">
+                      +{dreamState.lastNightInspiration} 灵感
+                    </span>
+                  )}
+                </h3>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {dreamState.lastNightSpecialRewards.map((r, i) => (
+                  <span
+                    key={i}
+                    className={`text-sm px-3 py-1.5 rounded-full font-semibold ${
+                      isNight
+                        ? 'bg-yellow-500/30 text-yellow-200'
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}
+                  >
+                    {r.emoji} {r.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {dreamState.active && halfBatteryStatus && (
             <div
@@ -313,11 +363,11 @@ export const DreamModal: React.FC = () => {
                 <XCircle className="w-5 h-5 text-red-500" />
                 <div>
                   <p className={`font-semibold ${isNight ? 'text-white' : 'text-gray-800'}`}>
-                    ⚠️ 昨夜梦境惩罚生效中
+                    ⚠️ 梦境惩罚生效中
                   </p>
                   <p className={`text-sm ${isNight ? 'text-red-300' : 'text-red-600'}`}>
                     今日发电量降低 {Math.round(dreamState.nextDayPenalty * 100)}%
-                    {dreamState.active ? '（次日白天生效）' : ''}
+                    {dreamState.active ? '（次日白天生效）' : '（全天生效）'}
                   </p>
                 </div>
               </div>
@@ -369,7 +419,7 @@ export const DreamModal: React.FC = () => {
                   </div>
                   <span className="text-xl font-bold text-yellow-500">
                     +{dreamState.wishes
-                      .filter((w) => w.fulfilled)
+                      .filter((w) => w.fulfilled && !w.invalidTarget)
                       .reduce((s, w) => s + w.inspirationReward, 0)}
                   </span>
                 </div>
@@ -410,12 +460,14 @@ function StatCard({
   icon,
   label,
   value,
+  subValue,
   color,
   isNight,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  subValue?: string;
   color: 'yellow' | 'green' | 'pink' | 'purple';
   isNight: boolean;
 }) {
@@ -455,7 +507,12 @@ function StatCard({
           {label}
         </span>
       </div>
-      <div className={`text-xl font-bold ${c.text}`}>{value}</div>
+      <div className="flex items-baseline gap-1">
+        <div className={`text-xl font-bold ${c.text}`}>{value}</div>
+        {subValue && (
+          <span className="text-xs font-bold text-green-500">{subValue}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -498,8 +555,10 @@ function WishTypeSection({
     }
   };
 
-  const fulfilled = wishes.filter((w) => w.fulfilled).length;
-  const totalReward = wishes.reduce((s, w) => s + w.inspirationReward, 0);
+  const validWishes = wishes.filter((w) => !w.invalidTarget);
+  const currentlyMetCount = validWishes.filter((w) => w.currentlyMet || w.fulfilled).length;
+  const totalReward = validWishes.reduce((s, w) => s + w.inspirationReward, 0);
+  const hasSpecialReward = wishes.some((w) => w.specialReward);
 
   return (
     <div
@@ -523,6 +582,11 @@ function WishTypeSection({
               {info.name}
               <span className="text-lg">{buildingStats.emoji}</span>
               {getIconForType()}
+              {hasSpecialReward && (
+                <span className="text-xs" title="有特殊奖励">
+                  🎁
+                </span>
+              )}
             </h3>
             <p className={`text-xs ${isNight ? 'text-indigo-300' : 'text-gray-500'}`}>
               {getConditionDescription()}
@@ -531,7 +595,12 @@ function WishTypeSection({
         </div>
         <div className="text-right">
           <div className={`text-sm font-bold ${isNight ? 'text-white' : 'text-gray-800'}`}>
-            {fulfilled}/{wishes.length}
+            {currentlyMetCount}/{validWishes.length}
+            {validWishes.length < wishes.length && (
+              <span className="text-xs text-orange-500 ml-1">
+                ({wishes.length - validWishes.length}无效)
+              </span>
+            )}
           </div>
           <div className={`text-xs ${isNight ? 'text-yellow-400' : 'text-yellow-600'}`}>
             +{totalReward} 灵感
@@ -568,7 +637,15 @@ function WishDetailItem({
   const isPowered = poweredCells.has(`${wish.targetCell.x},${wish.targetCell.y}`);
 
   const getStatusBadge = () => {
-    if (wish.fulfilled) {
+    if (wish.invalidTarget) {
+      return (
+        <span className="flex items-center gap-1 text-xs font-bold bg-orange-500 text-white px-2 py-0.5 rounded-full">
+          <Ban className="w-3 h-3" />
+          目标缺失
+        </span>
+      );
+    }
+    if (wish.status === 'fulfilled') {
       return (
         <span className="flex items-center gap-1 text-xs font-bold bg-green-500 text-white px-2 py-0.5 rounded-full">
           <Check className="w-3 h-3" />
@@ -581,6 +658,14 @@ function WishDetailItem({
         <span className="flex items-center gap-1 text-xs font-bold bg-red-500 text-white px-2 py-0.5 rounded-full">
           <XCircle className="w-3 h-3" />
           失败
+        </span>
+      );
+    }
+    if (wish.currentlyMet) {
+      return (
+        <span className="flex items-center gap-1 text-xs font-bold bg-green-500/80 text-white px-2 py-0.5 rounded-full">
+          <Check className="w-3 h-3" />
+          满足中
         </span>
       );
     }
@@ -597,80 +682,110 @@ function WishDetailItem({
   };
 
   const getLiveStatus = () => {
-    if (!cell || cell.type !== wish.targetType) {
-      return { text: '建筑已被移除', ok: false, color: 'text-red-500' };
+    if (wish.invalidTarget || !cell || cell.type !== wish.targetType) {
+      return { text: '⚠️ 目标建筑被替换，恢复建筑可继续', ok: false, color: 'text-orange-500' };
     }
     if (cell.faulty) {
-      return { text: '建筑故障', ok: false, color: 'text-orange-500' };
+      return { text: '建筑故障，需修复', ok: false, color: 'text-orange-500' };
     }
     switch (wish.type) {
       case 'blue_current':
         return isPowered
-          ? { text: '通电中 ✓', ok: true, color: 'text-green-500' }
-          : { text: '未通电 ✗', ok: false, color: 'text-red-500' };
+          ? { text: '✓ 通电中，条件满足', ok: true, color: 'text-green-500' }
+          : { text: '✗ 未通电，需要连接电源', ok: false, color: 'text-red-500' };
       case 'silent_night':
         return !isPowered
-          ? { text: '已断电静音 ✓', ok: true, color: 'text-green-500' }
-          : { text: '仍在工作 ✗', ok: false, color: 'text-red-500' };
+          ? { text: '✓ 已断电静音，条件满足', ok: true, color: 'text-green-500' }
+          : { text: '✗ 仍在工作，需要断开电源', ok: false, color: 'text-red-500' };
       case 'half_battery':
         return {
-          text: '依赖全局蓄电池状态',
-          ok: wish.fulfilled,
-          color: wish.fulfilled ? 'text-green-500' : 'text-yellow-500',
+          text: wish.currentlyMet ? '✓ 蓄电池处于半满区间' : '依赖全局蓄电池状态（见上方）',
+          ok: wish.currentlyMet,
+          color: wish.currentlyMet ? 'text-green-500' : 'text-yellow-500',
         };
     }
+  };
+
+  const getBgClass = () => {
+    if (wish.invalidTarget) {
+      return isNight
+        ? 'bg-orange-500/10 border-orange-500/30'
+        : 'bg-orange-50 border-orange-200';
+    }
+    if (wish.status === 'fulfilled') {
+      return isNight
+        ? 'bg-green-500/10 border-green-500/30'
+        : 'bg-green-50 border-green-200';
+    }
+    if (wish.status === 'failed') {
+      return isNight
+        ? 'bg-red-500/10 border-red-500/30'
+        : 'bg-red-50 border-red-200';
+    }
+    if (wish.currentlyMet) {
+      return isNight
+        ? 'bg-green-500/10 border-green-500/30'
+        : 'bg-green-50 border-green-200';
+    }
+    return isNight
+      ? 'bg-slate-700/30 border-slate-600/50'
+      : 'bg-gray-50 border-gray-200';
   };
 
   const liveStatus = getLiveStatus();
 
   return (
-    <div
-      className={`rounded-lg p-3 border transition-all ${
-        wish.fulfilled
-          ? isNight
-            ? 'bg-green-500/10 border-green-500/30'
-            : 'bg-green-50 border-green-200'
-          : wish.status === 'failed'
-          ? isNight
-            ? 'bg-red-500/10 border-red-500/30'
-            : 'bg-red-50 border-red-200'
-          : isNight
-          ? 'bg-slate-700/30 border-slate-600/50'
-          : 'bg-gray-50 border-gray-200'
-      }`}
-    >
+    <div className={`rounded-lg p-3 border transition-all ${getBgClass()}`}>
       <div className="flex items-start justify-between mb-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <Zap className={`w-3.5 h-3.5 ${liveStatus.color}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${liveStatus.color}`} />
             <span
-              className={`text-sm font-semibold ${
+              className={`text-sm font-semibold truncate ${
                 isNight ? 'text-white' : 'text-gray-800'
               }`}
             >
               位置 ({wish.targetCell.x}, {wish.targetCell.y})
             </span>
+            {wish.specialReward && (
+              <span
+                className="text-xs flex-shrink-0"
+                title={`特殊奖励: ${wish.specialReward.name}`}
+              >
+                {wish.specialReward.emoji}
+              </span>
+            )}
           </div>
           <p className={`text-xs mt-0.5 ${liveStatus.color} font-medium`}>
             {liveStatus.text}
           </p>
         </div>
-        {getStatusBadge()}
+        <div className="flex-shrink-0 ml-2">{getStatusBadge()}</div>
       </div>
       <div
         className={`flex items-center justify-between pt-2 border-t ${
           isNight ? 'border-slate-600/50' : 'border-gray-200'
         }`}
       >
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <Lightbulb className={`w-3 h-3 ${isNight ? 'text-yellow-400' : 'text-yellow-600'}`} />
           <span className={`text-xs ${isNight ? 'text-indigo-300' : 'text-gray-500'}`}>
             奖励
           </span>
+          <span className={`text-sm font-bold ${isNight ? 'text-yellow-400' : 'text-yellow-600'}`}>
+            +{wish.inspirationReward}
+          </span>
+          {wish.specialReward && (
+            <span
+              className={`text-xs px-1.5 py-0.5 rounded-full ${
+                isNight ? 'bg-pink-500/30 text-pink-200' : 'bg-pink-100 text-pink-700'
+              }`}
+              title={wish.specialReward.name}
+            >
+              {wish.specialReward.emoji} {wish.specialReward.name}
+            </span>
+          )}
         </div>
-        <span className={`text-sm font-bold ${isNight ? 'text-yellow-400' : 'text-yellow-600'}`}>
-          +{wish.inspirationReward}
-        </span>
       </div>
     </div>
   );

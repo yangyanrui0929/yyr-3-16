@@ -10,6 +10,7 @@ import {
   HALF_BATTERY_HIGH,
   PENALTY_PER_FAILED_DREAM,
   DAY_THRESHOLD,
+  CellType,
 } from './constants';
 
 function generateId(): string {
@@ -18,6 +19,14 @@ function generateId(): string {
 
 export function canGenerateDreams(satisfaction: number): boolean {
   return satisfaction >= DREAM_SATISFACTION_THRESHOLD;
+}
+
+function getRandomSpecialReward(type: DreamWishType) {
+  const rewards = DREAM_WISH_INFO[type].specialRewards;
+  if (Math.random() < 0.4) {
+    return rewards[Math.floor(Math.random() * rewards.length)];
+  }
+  return undefined;
 }
 
 export function generateDreams(
@@ -61,6 +70,7 @@ export function generateDreams(
     const info = DREAM_WISH_INFO[b.type];
     const bonusMultiplier = 1 + (satisfaction - DREAM_SATISFACTION_THRESHOLD) / 150;
     const reward = Math.round(info.inspirationBase * bonusMultiplier);
+    const specialReward = getRandomSpecialReward(b.type);
 
     return {
       id: generateId(),
@@ -69,7 +79,10 @@ export function generateDreams(
       targetType: info.targetBuildingType,
       status: 'pending' as const,
       fulfilled: false,
+      currentlyMet: false,
+      invalidTarget: false,
       inspirationReward: reward,
+      specialReward,
       description: info.description,
       emoji: info.emoji,
     };
@@ -89,27 +102,43 @@ export function evaluateDreamWishes(
   const storageRatio = maxStorage > 0 ? storedPower / maxStorage : 0;
 
   return wishes.map((wish) => {
-    if (wish.fulfilled || wish.status === 'failed') {
-      return wish;
-    }
-
     const cell = grid[wish.targetCell.y]?.[wish.targetCell.x];
     if (!cell) {
-      return { ...wish, status: 'failed', fulfilled: false };
+      return {
+        ...wish,
+        currentlyMet: false,
+        invalidTarget: true,
+        fulfilled: false,
+      };
     }
 
-    if (cell.type !== wish.targetType) {
-      return { ...wish, status: 'failed', fulfilled: false };
+    const isCorrectType = cell.type === wish.targetType;
+    if (!isCorrectType) {
+      return {
+        ...wish,
+        currentlyMet: false,
+        invalidTarget: true,
+        fulfilled: false,
+      };
+    }
+
+    if (cell.faulty) {
+      return {
+        ...wish,
+        currentlyMet: false,
+        invalidTarget: false,
+        fulfilled: false,
+      };
     }
 
     let conditionMet = false;
 
     switch (wish.type) {
       case 'blue_current':
-        conditionMet = cell.powered && !cell.faulty;
+        conditionMet = cell.powered;
         break;
       case 'silent_night':
-        conditionMet = !cell.powered && !cell.faulty;
+        conditionMet = !cell.powered;
         break;
       case 'half_battery':
         conditionMet =
@@ -119,8 +148,9 @@ export function evaluateDreamWishes(
 
     return {
       ...wish,
+      currentlyMet: conditionMet,
+      invalidTarget: false,
       fulfilled: conditionMet,
-      status: conditionMet ? ('fulfilled' as const) : wish.status,
     };
   });
 }
@@ -131,19 +161,24 @@ export function finalizeDreamEvaluation(wishes: DreamWish[]): {
   penalty: number;
   fulfilledCount: number;
   totalCount: number;
+  earnedSpecialRewards: Array<{ name: string; emoji: string }>;
 } {
   let totalInspiration = 0;
   let failedCount = 0;
   let fulfilledCount = 0;
+  const earnedSpecialRewards: Array<{ name: string; emoji: string }> = [];
 
   const updatedWishes = wishes.map((wish) => {
-    if (wish.fulfilled) {
+    if (wish.fulfilled && !wish.invalidTarget) {
       totalInspiration += wish.inspirationReward;
       fulfilledCount++;
+      if (wish.specialReward) {
+        earnedSpecialRewards.push(wish.specialReward);
+      }
       return { ...wish, status: 'fulfilled' as const };
     } else {
       failedCount++;
-      return { ...wish, status: 'failed' as const };
+      return { ...wish, status: 'failed' as const, fulfilled: false };
     }
   });
 
@@ -155,6 +190,7 @@ export function finalizeDreamEvaluation(wishes: DreamWish[]): {
     penalty,
     fulfilledCount,
     totalCount: wishes.length,
+    earnedSpecialRewards,
   };
 }
 
@@ -167,13 +203,18 @@ export function createInitialDreamState(): DreamState {
     lastEvaluatedDayTime: 0,
     totalWishes: 0,
     fulfilledWishes: 0,
+    lastNightInspiration: 0,
+    lastNightSpecialRewards: [],
+    activePenaltyDay: -1,
   };
 }
 
 export function getDreamProgress(wishes: DreamWish[]): number {
   if (wishes.length === 0) return 0;
-  const fulfilled = wishes.filter((w) => w.fulfilled).length;
-  return (fulfilled / wishes.length) * 100;
+  const validWishes = wishes.filter((w) => !w.invalidTarget);
+  if (validWishes.length === 0) return 0;
+  const fulfilled = validWishes.filter((w) => w.currentlyMet).length;
+  return (fulfilled / validWishes.length) * 100;
 }
 
 export function getTotalRewardPreview(wishes: DreamWish[]): number {

@@ -22,7 +22,10 @@ export interface DreamWish {
   targetType: CellType;
   status: DreamWishStatus;
   fulfilled: boolean;
+  currentlyMet: boolean;
+  invalidTarget: boolean;
   inspirationReward: number;
+  specialReward?: { name: string; emoji: string };
   description: string;
   emoji: string;
 }
@@ -35,6 +38,9 @@ export interface DreamState {
   lastEvaluatedDayTime: number;
   totalWishes: number;
   fulfilledWishes: number;
+  lastNightInspiration: number;
+  lastNightSpecialRewards: Array<{ name: string; emoji: string }>;
+  activePenaltyDay: number;
 }
 
 export const DREAM_WISH_INFO: Record<DreamWishType, {
@@ -43,6 +49,7 @@ export const DREAM_WISH_INFO: Record<DreamWishType, {
   emoji: string;
   inspirationBase: number;
   targetBuildingType: CellType;
+  specialRewards: Array<{ name: string; emoji: string }>;
 }> = {
   blue_current: {
     name: '蓝色安眠电流',
@@ -50,6 +57,11 @@ export const DREAM_WISH_INFO: Record<DreamWishType, {
     emoji: '💙',
     inspirationBase: 15,
     targetBuildingType: 'house',
+    specialRewards: [
+      { name: '甜梦礼包', emoji: '🎁' },
+      { name: '安眠护符', emoji: '🌙' },
+      { name: '星光碎片', emoji: '⭐' },
+    ],
   },
   silent_night: {
     name: '夜间断电静音',
@@ -57,6 +69,11 @@ export const DREAM_WISH_INFO: Record<DreamWishType, {
     emoji: '🤫',
     inspirationBase: 20,
     targetBuildingType: 'factory',
+    specialRewards: [
+      { name: '工匠之魂', emoji: '🔨' },
+      { name: '静谧铃铛', emoji: '🔔' },
+      { name: '休憩锦旗', emoji: '🏳️' },
+    ],
   },
   half_battery: {
     name: '蓄电池半满',
@@ -64,6 +81,11 @@ export const DREAM_WISH_INFO: Record<DreamWishType, {
     emoji: '⚖️',
     inspirationBase: 18,
     targetBuildingType: 'battery',
+    specialRewards: [
+      { name: '能量水晶', emoji: '💎' },
+      { name: '电池护芯', emoji: '🛡️' },
+      { name: '永续之光', emoji: '✨' },
+    ],
   },
 };
 

@@ -28,27 +28,35 @@ export const Building: React.FC<BuildingProps> = ({ cell }) => {
 
   const getDreamGlow = () => {
     if (!dreamInfo || !isNight) return null;
+    if (dreamInfo.invalidTarget) {
+      return {
+        color: 'rgba(249, 115, 22, 0.6)',
+        label: '⚠️',
+        isActive: false,
+      };
+    }
+    const isMet = dreamInfo.currentlyMet || dreamInfo.fulfilled;
     const glowMap: Record<DreamWishType, { color: string; label: string }> = {
       blue_current: {
-        color: dreamInfo.fulfilled
+        color: isMet
           ? 'rgba(59, 130, 246, 0.8)'
           : 'rgba(59, 130, 246, 0.4)',
         label: '💙',
       },
       silent_night: {
-        color: dreamInfo.fulfilled
+        color: isMet
           ? 'rgba(139, 92, 246, 0.8)'
           : 'rgba(139, 92, 246, 0.4)',
         label: '🤫',
       },
       half_battery: {
-        color: dreamInfo.fulfilled
+        color: isMet
           ? 'rgba(16, 185, 129, 0.8)'
           : 'rgba(16, 185, 129, 0.4)',
         label: '⚖️',
       },
     };
-    return glowMap[dreamInfo.type];
+    return { ...glowMap[dreamInfo.type], isActive: isMet };
   };
 
   const dreamGlow = getDreamGlow();
@@ -66,7 +74,7 @@ export const Building: React.FC<BuildingProps> = ({ cell }) => {
           />
           <div
             className={`absolute -top-2 -left-1 text-sm ${
-              dreamInfo?.fulfilled ? 'animate-bounce' : 'animate-pulse'
+              dreamGlow.isActive ? 'animate-bounce' : 'animate-pulse'
             }`}
           >
             {dreamGlow.label}
@@ -80,6 +88,8 @@ export const Building: React.FC<BuildingProps> = ({ cell }) => {
         style={{
           filter: cell.faulty
             ? 'hue-rotate(-50deg) saturate(2)'
+            : dreamInfo?.invalidTarget
+            ? 'grayscale(70%) opacity-70'
             : dreamInfo?.type === 'blue_current' && cell.powered
             ? 'drop-shadow(0 0 6px rgba(59, 130, 246, 0.8)) brightness(1.1)'
             : dreamInfo?.type === 'silent_night' && !cell.powered
@@ -94,7 +104,7 @@ export const Building: React.FC<BuildingProps> = ({ cell }) => {
       {cell.faulty && (
         <div className="absolute -top-1 -right-1 text-sm animate-pulse z-20">⚠️</div>
       )}
-      {dreamInfo?.fulfilled && isNight && (
+      {dreamInfo?.currentlyMet && isNight && !dreamInfo.invalidTarget && (
         <div className="absolute -bottom-1 -right-1 text-sm z-20 animate-bounce">✨</div>
       )}
       {cell.type === 'battery' && !cell.faulty && (
